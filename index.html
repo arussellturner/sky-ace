@@ -206,6 +206,7 @@
             <p><small>(Up/Down to Dive/Climb • Space: Laser • X: Shield • Y: Missile • C/L2: Cow Missile • P: Pause)</small></p>
             <p><small>🎮 Controller: D-pad/Stick: Fly • A/B: Laser • Y: Missile • X: Shield • L/L2: Cow • R/R2: Bombs • Start: Pause</small></p>
             <p id="gamepad-status" style="color:#2a8a6e; font-size:14px;"></p>
+            <pre id="gamepad-debug" style="font-family: Menlo, monospace; font-size: 11px; color:#555; text-align:left; background:#f3f3f3; border-radius:10px; padding:8px 10px; margin:6px auto; max-width:520px; white-space:pre-wrap; text-shadow:none;"></pre>
             <button class="btn" onclick="startGame()">TAKEOFF!</button>
         </div>
 
@@ -1129,7 +1130,35 @@
             return !!el && getComputedStyle(el).display !== 'none';
         }
 
+        // Live controller readout on the title screen (helps diagnose browser/controller issues)
+        let lastDebugUpdate = 0;
+        function updateGamepadDebug() {
+            const el = document.getElementById('gamepad-debug');
+            if (!el || !isVisible('menu')) return;
+            const now = performance.now();
+            if (now - lastDebugUpdate < 120) return;
+            lastDebugUpdate = now;
+            if (!navigator.getGamepads) { el.textContent = 'This browser does not support controllers (Gamepad API).'; return; }
+            if (!window.isSecureContext) {
+                el.textContent = 'Controllers need a secure page. Open https://arussellturner.github.io/sky-ace/';
+                return;
+            }
+            const pads = Array.from(navigator.getGamepads()).filter(p => p && p.connected);
+            if (pads.length === 0) {
+                el.textContent = 'Controller test: no controller visible to this browser yet.\n' +
+                    'Click this page, then press a face button (A/B/X/Y) on the controller.';
+                return;
+            }
+            el.textContent = 'Controller test:\n' + pads.map(p => {
+                const pressed = p.buttons.map((b, i) => (b && (b.pressed || b.value > 0.5)) ? i : null).filter(i => i !== null);
+                const axes = p.axes.map(v => v.toFixed(2)).join(' ');
+                return '#' + p.index + ' ' + p.id + '\n   mapping: ' + (p.mapping || 'non-standard') +
+                    ' | buttons: ' + p.buttons.length + ' | pressed: [' + pressed.join(', ') + ']\n   axes: ' + axes;
+            }).join('\n');
+        }
+
         function updateGamepad() {
+            updateGamepadDebug();
             const gp = getActiveGamepad();
             const a = gp ? readGamepadActions(gp) : null;
 
