@@ -204,6 +204,7 @@
             <h1>SKY ACE</h1>
             <p>Survive the chaos!<br>Enter/R2: "Oh shit bombs" (Barrage)</p>
             <p><small>(Up/Down to Dive/Climb • Space: Laser • X: Shield • Y: Missile • C/L2: Cow Missile • P: Pause)</small></p>
+            <p><small>🎮 Controller: D-pad/Stick: Fly • A/B: Laser • Y: Missile • X: Shield • L/L2: Cow • R/R2: Bombs • Start: Pause</small></p>
             <p id="gamepad-status" style="color:#2a8a6e; font-size:14px;"></p>
             <button class="btn" onclick="startGame()">TAKEOFF!</button>
         </div>
@@ -255,6 +256,11 @@
         const GROUND_Y = -350;
         const SEGMENT_LENGTH = 1000;
         let keys = { up: false, down: false, left: false, right: false, fire: false, x: false, y: false };
+        // Raw keyboard state (merged with controller state every frame in updateGamepad)
+        let kbKeys = { up: false, down: false, left: false, right: false, fire: false };
+        // Previous-frame controller button states for edge detection (keyed by action)
+        let gpPrev = {};
+        let activeGamepadIndex = null;
         let lastXPress = false;
         let lastYPress = false;
 
@@ -286,11 +292,14 @@
             window.addEventListener('resize', onWindowResize);
 
             window.addEventListener("gamepadconnected", (e) => {
-                document.getElementById('gamepad-status').innerText = "Controller Connected: " + e.gamepad.id;
+                activeGamepadIndex = e.gamepad.index;
+                setGamepadStatus(e.gamepad);
             });
             window.addEventListener("gamepaddisconnected", (e) => {
-                document.getElementById('gamepad-status').innerText = "";
+                if (activeGamepadIndex === e.gamepad.index) activeGamepadIndex = null;
+                setGamepadStatus(null);
             });
+            setGamepadStatus(null);
 
             renderHearts();
             animate();
@@ -744,11 +753,11 @@
                 togglePause();
                 return;
             }
-            if (code === 'ArrowUp' || code === 'KeyW') keys.up = isDown;
-            if (code === 'ArrowDown' || code === 'KeyS') keys.down = isDown;
-            if (code === 'ArrowLeft' || code === 'KeyA') keys.left = isDown;
-            if (code === 'ArrowRight' || code === 'KeyD') keys.right = isDown;
-            if (code === 'Space') keys.fire = isDown;
+            if (code === 'ArrowUp' || code === 'KeyW') kbKeys.up = isDown;
+            if (code === 'ArrowDown' || code === 'KeyS') kbKeys.down = isDown;
+            if (code === 'ArrowLeft' || code === 'KeyA') kbKeys.left = isDown;
+            if (code === 'ArrowRight' || code === 'KeyD') kbKeys.right = isDown;
+            if (code === 'Space') kbKeys.fire = isDown;
             if (code === 'KeyX') {
                 if (isDown && !lastXPress) player.isInvincible = !player.isInvincible;
                 lastXPress = isDown;
@@ -1018,27 +1027,143 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        function updateGamepad() {
-            const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-            const gp = gamepads[0]; 
+        // ---------- CONTROLLER (8BitDo Pro / Pro 2, Xbox, PlayStation, Switch Pro...) ----------
+        // Button names follow the 8BitDo / Nintendo face-button labels:
+        //   A (right) / B (bottom) = Laser (hold)   Y (left) = Missile   X (top) = Shield
+        //   L / L2 = Cow Missile   R / R2 = "Oh shit bombs"   + / Start = Start / Pause
+        //   D-pad or left stick = fly.  On the title / game-over screen, A, B or Start takes off.
+
+        function setGamepadStatus(gp) {
+            const el = document.getElementById('gamepad-status');
+            if (!el) return;
             if (gp) {
-                const axesThreshold = 0.3;
-                keys.left = gp.axes[0] < -axesThreshold || gp.buttons[14].pressed;
-                keys.right = gp.axes[0] > axesThreshold || gp.buttons[15].pressed;
-                keys.up = gp.axes[1] < -axesThreshold || gp.buttons[12].pressed;
-                keys.down = gp.axes[1] > axesThreshold || gp.buttons[13].pressed;
-                keys.fire = gp.buttons[1].pressed; 
-                if (gp.buttons[0].pressed && !lastGamepadY) fireMissile();
-                lastGamepadY = gp.buttons[0].pressed;
-                if (gp.buttons[2].pressed && !lastGamepadX) player.isInvincible = !player.isInvincible;
-                lastGamepadX = gp.buttons[2].pressed;
-                if (gp.buttons[6].pressed && !lastGamepadL2) fireCow(); 
-                lastGamepadL2 = gp.buttons[6].pressed;
-                if (gp.buttons[7].pressed && !lastGamepadR2) fireBarrage();
-                lastGamepadR2 = gp.buttons[7].pressed;
-                if (gp.buttons[9].pressed && !lastPausePress) togglePause();
-                lastPausePress = gp.buttons[9].pressed;
+                const name = gp.id.replace(/\s*\(.*?Vendor.*$/i, '').trim() || 'Controller';
+                el.innerHTML = '🎮 ' + name + ' connected &mdash; press <b>A</b> or <b>Start</b> to take off!';
+            } else {
+                el.innerHTML = '🎮 Using a controller? Press any button on it to connect.';
             }
+        }
+
+        // Pick the controller to use: the last one that sent input, else the first connected one.
+        function getActiveGamepad() {
+            const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
+            const connected = pads.filter(p => p && p.connected);
+            if (connected.length === 0) return null;
+            // Switch to whichever pad has a button pressed (handles multiple/ghost devices)
+            for (const p of connected) {
+                if (p.buttons.some(b => b && (b.pressed || b.value > 0.5))) {
+                    if (activeGamepadIndex !== p.index) {
+                        activeGamepadIndex = p.index;
+                        setGamepadStatus(p);
+                    }
+                    return p;
+                }
+            }
+            const current = connected.find(p => p.index === activeGamepadIndex);
+            if (current) return current;
+            activeGamepadIndex = connected[0].index;
+            setGamepadStatus(connected[0]);
+            return connected[0];
+        }
+
+        const btn = (gp, i) => {
+            const b = gp.buttons[i];
+            return !!b && (b.pressed || b.value > 0.5);
+        };
+
+        // Reads the controller into a normalized set of actions.
+        function readGamepadActions(gp) {
+            const dead = 0.35;
+            const ax = (i) => (gp.axes[i] !== undefined ? gp.axes[i] : 0);
+            const a = {
+                up: ax(1) < -dead, down: ax(1) > dead, left: ax(0) < -dead, right: ax(0) > dead,
+                fire: false, missile: false, shield: false, cow: false, bomb: false, start: false, confirm: false
+            };
+
+            if (gp.mapping === 'standard') {
+                // W3C standard layout (positional): 0 bottom, 1 right, 2 left, 3 top
+                a.up = a.up || btn(gp, 12);
+                a.down = a.down || btn(gp, 13);
+                a.left = a.left || btn(gp, 14);
+                a.right = a.right || btn(gp, 15);
+                a.fire = btn(gp, 1) || btn(gp, 0);          // A (right) or B (bottom)
+                a.missile = btn(gp, 2);                      // Y (left)
+                a.shield = btn(gp, 3);                       // X (top)
+                a.cow = btn(gp, 6) || btn(gp, 4);            // L2 or L
+                a.bomb = btn(gp, 7) || btn(gp, 5);           // R2 or R
+                a.start = btn(gp, 9);                        // + / Start
+                a.confirm = btn(gp, 0) || btn(gp, 1) || btn(gp, 9);
+            } else {
+                // Non-standard (e.g. 8BitDo in D-input mode on macOS). Typical layout:
+                // 0 B, 1 A, 3 X, 4 Y, 6 L, 7 R, 8 L2, 9 R2, 11 Start; D-pad as a hat axis.
+                a.fire = btn(gp, 0) || btn(gp, 1);
+                a.shield = btn(gp, 3);
+                a.missile = btn(gp, 4);
+                a.cow = btn(gp, 6) || btn(gp, 8);
+                a.bomb = btn(gp, 7) || btn(gp, 9);
+                a.start = btn(gp, 11);
+                a.confirm = btn(gp, 0) || btn(gp, 1) || btn(gp, 11);
+                // Hat switch D-pad: usually the last axis, values in [-1, 1] in steps of 2/7; ~1.28 = centered
+                const hatIndex = gp.axes.length >= 10 ? 9 : gp.axes.length - 1;
+                const hat = gp.axes.length > 4 ? ax(hatIndex) : 2;
+                if (hat >= -1.05 && hat <= 1.05) {
+                    const dir = Math.round((hat + 1) * 3.5); // 0..7 starting at Up, clockwise
+                    a.up = a.up || dir === 0 || dir === 1 || dir === 7;
+                    a.right = a.right || dir === 1 || dir === 2 || dir === 3;
+                    a.down = a.down || dir === 3 || dir === 4 || dir === 5;
+                    a.left = a.left || dir === 5 || dir === 6 || dir === 7;
+                }
+            }
+            return a;
+        }
+
+        // True only on the frame the action goes from released -> pressed
+        function justPressed(name, isDown) {
+            const was = !!gpPrev[name];
+            gpPrev[name] = isDown;
+            return isDown && !was;
+        }
+
+        function isVisible(id) {
+            const el = document.getElementById(id);
+            return !!el && getComputedStyle(el).display !== 'none';
+        }
+
+        function updateGamepad() {
+            const gp = getActiveGamepad();
+            const a = gp ? readGamepadActions(gp) : null;
+
+            // Merge keyboard + controller so both always work
+            keys.up = kbKeys.up || (!!a && a.up);
+            keys.down = kbKeys.down || (!!a && a.down);
+            keys.left = kbKeys.left || (!!a && a.left);
+            keys.right = kbKeys.right || (!!a && a.right);
+            keys.fire = kbKeys.fire || (!!a && a.fire);
+
+            if (!a) { gpPrev = {}; return; }
+
+            const confirm = justPressed('confirm', a.confirm);
+            const start = justPressed('start', a.start);
+            const missile = justPressed('missile', a.missile);
+            const shield = justPressed('shield', a.shield);
+            const cow = justPressed('cow', a.cow);
+            const bomb = justPressed('bomb', a.bomb);
+
+            // Menus: take off / retry / resume with A, B or Start
+            if (!isPlaying) {
+                if (confirm && (isVisible('menu') || isVisible('game-over'))) startGame();
+                return;
+            }
+            if (isPaused) {
+                if (start || confirm) togglePause();
+                return;
+            }
+
+            if (start) togglePause();
+            if (missile) fireMissile();
+            if (shield) player.isInvincible = !player.isInvincible;
+            if (cow) fireCow();
+            if (bomb) fireBarrage();
         }
 
         function animate() {
