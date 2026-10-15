@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sky Ace: Cartoon Survive</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Comic Sans MS', 'Arial Rounded MT Bold', cursive;
+            background: #87CEEB;
+            user-select: none;
+            touch-action: none;
+        }
+
+        #ui-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            color: white;
+            text-shadow: 2px 2px 0px #000;
+        }
+
+        /* Tactical HUD Overlay */
+        #hud-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .reticle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 40px;
+            height: 40px;
+            border: 2px solid rgba(0, 255, 0, 0.6);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+        .reticle::before, .reticle::after {
+            content: '';
+            position: absolute;
+            background: rgba(0, 255, 0, 0.6);
+        }
+        .reticle::before { width: 10px; height: 2px; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+        .reticle::after { width: 2px; height: 10px; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+
+        .enemy-bracket {
+            position: absolute;
+            border: 2px solid #00ff00;
+            opacity: 0.5;
+            display: none; /* Hidden by default until positioned */
+        }
+
+        #hud {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 20px;
+            flex-wrap: wrap;
+        }
+
+        .hud-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 5px;
+            align-items: center;
+        }
+
+        .stat-box {
+            background: #f9d423;
+            padding: 8px 20px;
+            border-radius: 50px;
+            border: 4px solid #000;
+            color: #000;
+            text-shadow: none;
+            min-width: 90px;
+            box-shadow: 4px 4px 0px rgba(0,0,0,0.2);
+        }
+
+        .label { font-size: 11px; font-weight: 800; text-transform: uppercase; margin-bottom: 1px; line-height: 1.2; }
+        .value { font-size: 20px; font-weight: 900; line-height: 1.1; }
+
+        #hearts-container { display: flex; gap: 5px; margin-top: 2px; }
+        .heart { font-size: 20px; filter: drop-shadow(2px 2px 0px black); }
+
+        #cow-cooldown-container {
+            position: relative;
+            width: 250px;
+            height: 48px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 4px solid #000;
+            border-radius: 50px;
+            overflow: hidden;
+            box-shadow: 4px 4px 0px rgba(0,0,0,0.2);
+            pointer-events: none;
+            display: none;
+        }
+        
+        #cow-cooldown-bar {
+            width: 100%;
+            height: 100%;
+            background: #ff88aa;
+            transition: width 0.1s linear;
+        }
+
+        #cow-cooldown-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 14px;
+            font-weight: 900;
+            color: white;
+            text-shadow: 2px 2px 0px #000;
+            white-space: nowrap;
+        }
+
+        #menu, #game-over, #checkpoint-msg, #pause-menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: auto;
+            background: white;
+            padding: 40px;
+            border-radius: 40px;
+            text-align: center;
+            border: 6px solid #000;
+            box-shadow: 10px 10px 0px #f9d423;
+            min-width: 300px;
+            z-index: 100;
+        }
+
+        #game-over, #pause-menu { display: none; }
+
+        h1 { margin: 0; font-size: 50px; color: #ff4d6d; -webkit-text-stroke: 2px black; }
+        p { color: #333; font-weight: bold; margin-bottom: 20px; text-shadow: none; }
+
+        .btn {
+            background: #4ecca3;
+            color: white;
+            border: 4px solid #000;
+            padding: 15px 45px;
+            font-size: 24px;
+            font-weight: 900;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: transform 0.1s;
+            box-shadow: 0 6px 0px #2a8a6e;
+        }
+
+        .btn:active { transform: translateY(4px); box-shadow: 0 2px 0px #2a8a6e; }
+    </style>
+</head>
+<body>
+
+    <div id="hud-overlay">
+        <div class="reticle"></div>
+        <div id="enemy-targets"></div>
+    </div>
+
+    <div id="ui-container">
+        <div id="hud">
+            <div class="hud-group">
+                <div class="stat-box">
+                    <div class="label">Hull (X)</div>
+                    <div id="hearts-container"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="label">Missiles [Y]</div>
+                    <div class="value" id="missile-count">10</div>
+                </div>
+                <div class="stat-box">
+                    <div class="label">Oh shit bombs [Enter/R2]</div>
+                    <div class="value" id="barrage-count">2</div>
+                </div>
+                <div id="cow-cooldown-container">
+                    <div id="cow-cooldown-bar"></div>
+                    <div id="cow-cooldown-text">COW BOMB READY! [C/L2]</div>
+                </div>
+            </div>
+            
+            <div class="hud-group">
+                <div class="stat-box" style="text-align: right;">
+                    <div class="label">Total Score</div>
+                    <div class="value" id="score">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="menu">
+            <h1>SKY ACE</h1>
+            <p>Survive the chaos!<br>Enter/R2: "Oh shit bombs" (Barrage)</p>
+            <p><small>(Up/Down to Dive/Climb • Space: Laser • X: Shield • Y: Missile • C/L2: Cow Missile • P: Pause)</small></p>
+            <p id="gamepad-status" style="color:#2a8a6e; font-size:14px;"></p>
+            <button class="btn" onclick="startGame()">TAKEOFF!</button>
+        </div>
+
+        <div id="pause-menu">
+            <h1>PAUSED</h1>
+            <p>Taking a breather?</p>
+            <button class="btn" onclick="togglePause()">RESUME</button>
+        </div>
+
+        <div id="game-over">
+            <h1>MAYDAY!</h1>
+            <p id="fail-reason">You crashed!</p>
+            <p>Final Score: <span id="final-score">0</span></p>
+            <button class="btn" onclick="startGame()">RETRY</button>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, jet, jetParts = [];
+        let enemies = [], lasers = [], missiles = [], cowMissiles = [], particles = [], clouds = [], coins = [], bombCoins = [];
+        let groundSegments = [], hudGridParts = [];
+        let isPlaying = false, isPaused = false, score = 0, health = 5;
+        let clock = new THREE.Clock();
+        let lastFireTime = 0;
+        let lastMissileTime = 0;
+        let lastCowTime = 0;
+        let lastBarrageTime = 0;
+        let lastPausePress = false;
+        let lastGamepadX = false;
+        let lastGamepadY = false;
+        let lastGamepadL2 = false;
+        let lastGamepadR2 = false;
+
+        const player = {
+            pos: new THREE.Vector3(0, 0, 0),
+            speed: 40,
+            rotation: new THREE.Euler(0, 0, 0),
+            targetX: 0,
+            targetY: 0,
+            bounds: { x: 30, y: 20 },
+            isInvincible: false,
+            rainbowHue: 0,
+            missileAmmo: 10,
+            maxMissiles: 10,
+            barrageCount: 2
+        };
+
+        const GROUND_Y = -350;
+        const SEGMENT_LENGTH = 1000;
+        let keys = { up: false, down: false, left: false, right: false, fire: false, x: false, y: false };
+        let lastXPress = false;
+        let lastYPress = false;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            scene.fog = new THREE.Fog(0x87CEEB, 100, 1500);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 3000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // Lowered ambient light slightly so colors don't get washed out to white
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+            sun.position.set(50, 100, 50);
+            scene.add(sun);
+
+            createJet();
+            createInitialClouds();
+            createInitialGround();
+            createHUDGrid();
+
+            window.addEventListener('keydown', (e) => handleKey(e.code, true));
+            window.addEventListener('keyup', (e) => handleKey(e.code, false));
+            window.addEventListener('resize', onWindowResize);
+
+            window.addEventListener("gamepadconnected", (e) => {
+                document.getElementById('gamepad-status').innerText = "Controller Connected: " + e.gamepad.id;
+            });
+            window.addEventListener("gamepaddisconnected", (e) => {
+                document.getElementById('gamepad-status').innerText = "";
+            });
+
+            renderHearts();
+            animate();
+        }
+
+        // --- HUD GRID ---
+        function createHUDGrid() {
+            const gridMat = new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.2 });
+            const gridGroup = new THREE.Group();
+            
+            // Generate a set of frames to move through
+            for(let i=0; i<10; i++) {
+                const points = [];
+                const bx = player.bounds.x + 5;
+                const by = player.bounds.y + 5;
+                
+                points.push(new THREE.Vector3(-bx, -by, 0));
+                points.push(new THREE.Vector3(bx, -by, 0));
+                points.push(new THREE.Vector3(bx, by, 0));
+                points.push(new THREE.Vector3(-bx, by, 0));
+                points.push(new THREE.Vector3(-bx, -by, 0));
+
+                const geo = new THREE.BufferGeometry().setFromPoints(points);
+                const line = new THREE.Line(geo, gridMat);
+                line.position.z = -i * 50;
+                gridGroup.add(line);
+                hudGridParts.push(line);
+            }
+
+            const corners = [[-1,-1], [1,-1], [1,1], [-1,1]];
+            corners.forEach(c => {
+                const pts = [
+                    new THREE.Vector3(c[0]*(player.bounds.x+5), c[1]*(player.bounds.y+5), 100),
+                    new THREE.Vector3(c[0]*(player.bounds.x+5), c[1]*(player.bounds.y+5), -600)
+                ];
+                const g = new THREE.BufferGeometry().setFromPoints(pts);
+                const l = new THREE.Line(g, gridMat);
+                gridGroup.add(l);
+            });
+
+            scene.add(gridGroup);
+            player.gridGroup = gridGroup;
+        }
+
+        function updateHUDGrid(delta) {
+            player.gridGroup.position.z = jet.position.z % 50;
+            player.gridGroup.position.x = jet.position.x * 0.2; 
+            player.gridGroup.position.y = jet.position.y * 0.2;
+        }
+
+        function createJet() {
+            const group = new THREE.Group();
+            jetParts = [];
+
+            // Materials - Deep rich pinks
+            const matPink = new THREE.MeshToonMaterial({ color: 0xFF77A8 }); 
+            const matDarkPink = new THREE.MeshToonMaterial({ color: 0xD01C8B });
+            const matBlack = new THREE.MeshToonMaterial({ color: 0x222222 });
+            const matWhite = new THREE.MeshToonMaterial({ color: 0xFFFFFF });
+            const matRed = new THREE.MeshToonMaterial({ color: 0xEE0000 });
+            const matYellow = new THREE.MeshToonMaterial({ color: 0xFFFF00 });
+
+            const addJetPart = (mesh) => {
+                mesh.userData.originalColor = mesh.material.color.clone();
+                jetParts.push(mesh);
+                return mesh;
+            }
+
+            // Body
+            const body = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(3, 2.8, 4.5), matPink.clone()));
+            group.add(body);
+
+            // Head
+            const head = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(2.5, 2.5, 2.5), matPink.clone()));
+            head.position.set(0, 0.5, -2.8);
+            group.add(head);
+
+            // Snout
+            const snout = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(1.5, 1, 0.8), matDarkPink.clone()));
+            snout.position.set(0, -0.4, -1.6);
+            head.add(snout);
+
+            // Nostrils
+            const nostrilL = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.2), matBlack.clone()));
+            nostrilL.position.set(0.35, 0, -0.45);
+            snout.add(nostrilL);
+            const nostrilR = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.2), matBlack.clone()));
+            nostrilR.position.set(-0.35, 0, -0.45);
+            snout.add(nostrilR);
+
+            // Eyes
+            const eyeL = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.2), matWhite.clone()));
+            eyeL.position.set(0.8, 0.4, -1.35);
+            head.add(eyeL);
+            const eyeR = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.2), matWhite.clone()));
+            eyeR.position.set(-0.8, 0.4, -1.35);
+            head.add(eyeR);
+
+            // Pupils
+            const pupL = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.2), matBlack.clone()));
+            pupL.position.set(0, 0, -0.15);
+            eyeL.add(pupL);
+            const pupR = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.2), matBlack.clone()));
+            pupR.position.set(0, 0, -0.15);
+            eyeR.add(pupR);
+
+            // Ears
+            const earL = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.2), matPink.clone()));
+            earL.position.set(1.1, 1.3, -0.5);
+            earL.rotation.z = -0.3;
+            head.add(earL);
+            const earR = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.2), matPink.clone()));
+            earR.position.set(-1.1, 1.3, -0.5);
+            earR.rotation.z = 0.3;
+            head.add(earR);
+
+            // Legs
+            const legPositions = [
+                [1, -1.8, -1.2], [-1, -1.8, -1.2],
+                [1, -1.8, 1.2], [-1, -1.8, 1.2]
+            ];
+            legPositions.forEach(pos => {
+                const leg = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.5, 0.8), matPink.clone()));
+                leg.position.set(...pos);
+                const hoof = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.4, 0.82), matBlack.clone()));
+                hoof.position.set(0, -0.55, 0);
+                leg.add(hoof);
+                group.add(leg);
+            });
+
+            // Collar
+            const collar = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.4, 0.5), matYellow.clone()));
+            collar.position.set(0, -0.8, -1.2);
+            head.add(collar);
+            const collarBow = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.6), matRed.clone()));
+            collarBow.position.set(0, 0, -0.3);
+            collar.add(collarBow);
+
+            // Cape (Flapping logic)
+            group.capeParts = [];
+            const capeGroup = new THREE.Group();
+            capeGroup.position.set(0, 1.6, 1.5);
+            group.add(capeGroup);
+
+            const capeBase = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.3, 1.5), matRed.clone()));
+            capeBase.position.set(0, 0, -0.75);
+            capeGroup.add(capeBase);
+
+            for(let i=0; i<5; i++) {
+                const capeSeg = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.3, 1), matRed.clone()));
+                capeSeg.position.set(0, 0, i);
+                group.capeParts.push(capeSeg);
+                capeGroup.add(capeSeg);
+            }
+
+            // Curly Tail
+            const tailGroup = new THREE.Group();
+            tailGroup.position.set(0, -0.5, 2.5);
+            for(let i=0; i<5; i++) {
+                const tailSegment = addJetPart(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), matPink.clone()));
+                tailSegment.position.set(0, i*0.2, i*0.15);
+                tailSegment.rotation.x = i*0.5;
+                tailGroup.add(tailSegment);
+            }
+            group.add(tailGroup);
+
+            jet = group;
+            scene.add(jet);
+        }
+
+        function spawnCloud(zPos) {
+            const group = new THREE.Group();
+            const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 });
+            for(let i=0; i<5; i++) {
+                const s = new THREE.Mesh(new THREE.SphereGeometry(5 + Math.random()*5, 8, 8), mat);
+                s.position.set(Math.random()*10-5, Math.random()*5-2.5, Math.random()*10-5);
+                group.add(s);
+            }
+            group.position.set((Math.random()-0.5)*400, (Math.random()-0.5)*200, zPos || jet.position.z - 1000);
+            scene.add(group);
+            clouds.push(group);
+        }
+
+        function createInitialClouds() {
+            for(let i=0; i<30; i++) {
+                spawnCloud(Math.random() * -1500);
+            }
+        }
+
+        function spawnEnemy() {
+            const group = new THREE.Group();
+
+            // Materials
+            const matDarkBrown = new THREE.MeshToonMaterial({ color: 0x8B4513 });
+            const matLightBrown = new THREE.MeshToonMaterial({ color: 0xE67E22 }); 
+            const matWhite = new THREE.MeshToonMaterial({ color: 0xFFFFFF });
+            const matRed = new THREE.MeshToonMaterial({ color: 0xFF0000 });
+            const matYellow = new THREE.MeshToonMaterial({ color: 0xFFD700 });
+            const matBlack = new THREE.MeshToonMaterial({ color: 0x000000 });
+
+            // Body
+            const bodyBottom = new THREE.Mesh(new THREE.BoxGeometry(3, 1.5, 3.5), matDarkBrown);
+            bodyBottom.position.set(0, 0, 0);
+            group.add(bodyBottom);
+
+            const bodyTop = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2, 3.8), matLightBrown);
+            bodyTop.position.set(0, 1.5, 0.2);
+            group.add(bodyTop);
+
+            // Head
+            const head = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.2, 2.2), matLightBrown);
+            head.position.set(0, 3, -1.5);
+            group.add(head);
+
+            // Comb
+            const comb1 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1, 0.8), matRed);
+            comb1.position.set(0, 1.5, 0.2); head.add(comb1);
+            const comb2 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.4, 0.8), matRed);
+            comb2.position.set(0, 1.7, -0.4); head.add(comb2);
+            const comb3 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1, 0.8), matRed);
+            comb3.position.set(0, 1.5, -1.0); head.add(comb3);
+
+            // Beak
+            const beakTop = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.6, 1), matYellow);
+            beakTop.position.set(0, -0.2, -1.5); head.add(beakTop);
+            const beakBottom = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.4, 0.8), matYellow);
+            beakBottom.position.set(0, -0.8, -1.4); head.add(beakBottom);
+
+            // Wattle
+            const wattle = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1, 0.6), matRed);
+            wattle.position.set(0, -1.4, -0.8); head.add(wattle);
+
+            // Eyes (Huge)
+            const eyeLeft = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.3), matWhite);
+            eyeLeft.position.set(1.1, 0.2, -0.8); head.add(eyeLeft);
+            const eyeRight = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.3), matWhite);
+            eyeRight.position.set(-1.1, 0.2, -0.8); head.add(eyeRight);
+
+            // Pupils (Cross-eyed offset, large)
+            const pupilGeo = new THREE.BoxGeometry(0.6, 0.6, 0.2);
+            const pupilLeft = new THREE.Mesh(pupilGeo, matBlack);
+            pupilLeft.position.set(-0.15, 0, -0.16); eyeLeft.add(pupilLeft); 
+            const pupilRight = new THREE.Mesh(pupilGeo, matBlack);
+            pupilRight.position.set(0.15, 0, -0.16); eyeRight.add(pupilRight); 
+
+            // Wings (with pivot groups for flapping)
+            const wingLeftGroup = new THREE.Group();
+            wingLeftGroup.position.set(1.6, 1.5, 0); 
+            group.add(wingLeftGroup);
+            const wingLeft = new THREE.Mesh(new THREE.BoxGeometry(0.6, 2.5, 2.5), matWhite);
+            wingLeft.position.set(0.3, -1, 0); 
+            const wingLeftOuter = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.5, 1.5), matWhite);
+            wingLeftOuter.position.set(0.4, -0.5, 0.2);
+            wingLeft.add(wingLeftOuter);
+            wingLeftGroup.add(wingLeft);
+
+            const wingRightGroup = new THREE.Group();
+            wingRightGroup.position.set(-1.6, 1.5, 0); 
+            group.add(wingRightGroup);
+            const wingRight = new THREE.Mesh(new THREE.BoxGeometry(0.6, 2.5, 2.5), matWhite);
+            wingRight.position.set(-0.3, -1, 0); 
+            const wingRightOuter = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.5, 1.5), matWhite);
+            wingRightOuter.position.set(-0.4, -0.5, 0.2);
+            wingRight.add(wingRightOuter);
+            wingRightGroup.add(wingRight);
+
+            // Tail
+            const tail = new THREE.Group();
+            tail.position.set(0, 1.5, 2);
+            group.add(tail);
+            const tf1 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 2.5, 0.8), matWhite);
+            tf1.position.set(0, 0.5, 0.5); tf1.rotation.x = -0.5; tail.add(tf1);
+            const tf2 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 2, 0.8), matDarkBrown);
+            tf2.position.set(0.6, 0.2, 0.3); tf2.rotation.x = -0.7; tf2.rotation.z = -0.3; tail.add(tf2);
+            const tf3 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 2, 0.8), matDarkBrown);
+            tf3.position.set(-0.6, 0.2, 0.3); tf3.rotation.x = -0.7; tf3.rotation.z = 0.3; tail.add(tf3);
+            const tf4 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.5, 0.6), matWhite);
+            tf4.position.set(1.0, 0, 0.1); tf4.rotation.x = -0.8; tf4.rotation.z = -0.5; tail.add(tf4);
+            const tf5 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.5, 0.6), matWhite);
+            tf5.position.set(-1.0, 0, 0.1); tf5.rotation.x = -0.8; tf5.rotation.z = 0.5; tail.add(tf5);
+
+            // Legs & Feet
+            const legLeft = new THREE.Group();
+            legLeft.position.set(0.8, -0.5, 0); group.add(legLeft);
+            const legBoneL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.5, 0.4), matYellow);
+            legBoneL.position.set(0, -0.75, 0); legLeft.add(legBoneL);
+            const footL = new THREE.Group();
+            footL.position.set(0, -1.5, 0); legLeft.add(footL);
+            const toeL1 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 1.2), matYellow);
+            toeL1.position.set(0, 0, -0.4); footL.add(toeL1);
+            const toeL2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 1.0), matYellow);
+            toeL2.position.set(0.3, 0, -0.3); toeL2.rotation.y = 0.3; footL.add(toeL2);
+            const toeL3 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 1.0), matYellow);
+            toeL3.position.set(-0.3, 0, -0.3); toeL3.rotation.y = -0.3; footL.add(toeL3);
+
+            const legRight = new THREE.Group();
+            legRight.position.set(-0.8, -0.5, 0); group.add(legRight);
+            const legBoneR = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.5, 0.4), matYellow);
+            legBoneR.position.set(0, -0.75, 0); legRight.add(legBoneR);
+            const footR = new THREE.Group();
+            footR.position.set(0, -1.5, 0); legRight.add(footR);
+            const toeR1 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 1.2), matYellow);
+            toeR1.position.set(0, 0, -0.4); footR.add(toeR1);
+            const toeR2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 1.0), matYellow);
+            toeR2.position.set(0.3, 0, -0.3); toeR2.rotation.y = 0.3; footR.add(toeR2);
+            const toeR3 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 1.0), matYellow);
+            toeR3.position.set(-0.3, 0, -0.3); toeR3.rotation.y = -0.3; footR.add(toeR3);
+
+            group.position.set(
+                (Math.random()-0.5) * player.bounds.x * 2,
+                (Math.random()-0.5) * player.bounds.y * 2,
+                jet.position.z - 500
+            );
+
+            group.scale.set(1.6, 1.6, 1.6); 
+            group.rotation.y = Math.PI; // Face player
+
+            group.userData = {
+                isTracker: Math.random() < 0.4,
+                trackSpeed: 15 + Math.random() * 15,
+                wingLeft: wingLeftGroup,
+                wingRight: wingRightGroup,
+                flapTimer: Math.random() * Math.PI * 2,
+                flapSpeed: 12 + Math.random() * 6
+            };
+
+            scene.add(group);
+            enemies.push(group);
+        }
+
+        function spawnCoin() {
+            const group = new THREE.Group();
+            const coinGeo = new THREE.CylinderGeometry(1.5, 1.5, 0.4, 16);
+            const coinMat = new THREE.MeshToonMaterial({ color: 0x4ecca3 });
+            const coin = new THREE.Mesh(coinGeo, coinMat);
+            coin.rotation.x = Math.PI / 2;
+            group.add(coin);
+
+            const detailGeo = new THREE.CylinderGeometry(0.8, 0.8, 0.45, 16);
+            const detailMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5 });
+            const detailFront = new THREE.Mesh(detailGeo, detailMat);
+            detailFront.rotation.x = Math.PI / 2;
+            group.add(detailFront);
+
+            group.position.set(
+                (Math.random()-0.5) * player.bounds.x * 1.8,
+                (Math.random()-0.5) * player.bounds.y * 1.8,
+                jet.position.z - 500
+            );
+            scene.add(group);
+            coins.push(group);
+        }
+
+        function spawnBombCoin() {
+            const group = new THREE.Group();
+            const coinGeo = new THREE.CylinderGeometry(1.8, 1.8, 0.5, 16);
+            const coinMat = new THREE.MeshToonMaterial({ color: 0xffff00 });
+            const coin = new THREE.Mesh(coinGeo, coinMat);
+            coin.rotation.x = Math.PI / 2;
+            group.add(coin);
+
+            const detailGeo = new THREE.CylinderGeometry(1, 1, 0.6, 16);
+            const detailMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 });
+            const detailFront = new THREE.Mesh(detailGeo, detailMat);
+            detailFront.rotation.x = Math.PI / 2;
+            group.add(detailFront);
+
+            group.position.set(
+                (Math.random()-0.5) * player.bounds.x * 1.8,
+                (Math.random()-0.5) * player.bounds.y * 1.8,
+                jet.position.z - 500
+            );
+            scene.add(group);
+            bombCoins.push(group);
+        }
+
+        function createInitialGround() {
+            for(let i=0; i<4; i++) {
+                createGroundSegment(-i * SEGMENT_LENGTH);
+            }
+        }
+
+        function createGroundSegment(zOffset) {
+            const group = new THREE.Group();
+            group.position.z = zOffset;
+            group.position.y = GROUND_Y;
+
+            const planeGeo = new THREE.PlaneGeometry(2000, SEGMENT_LENGTH);
+            const planeMat = new THREE.MeshLambertMaterial({ color: 0x7cfc00 });
+            const plane = new THREE.Mesh(planeGeo, planeMat);
+            plane.rotation.x = -Math.PI / 2;
+            group.add(plane);
+
+            for(let i=0; i<40; i++) {
+                const x = (Math.random() - 0.5) * 1500;
+                const z = (Math.random() - 0.5) * SEGMENT_LENGTH;
+                const type = Math.random();
+                if (type < 0.3) addMountain(group, x, z);
+                else if (type < 0.7) addForest(group, x, z);
+                else if (type < 0.85) addFarm(group, x, z);
+                else addCows(group, x, z);
+            }
+            scene.add(group);
+            groundSegments.push(group);
+        }
+
+        function addMountain(parent, x, z) {
+            const h = 50 + Math.random() * 150;
+            const geo = new THREE.ConeGeometry(40 + Math.random()*40, h, 4);
+            const mat = new THREE.MeshLambertMaterial({ color: 0x8b7355 });
+            const m = new THREE.Mesh(geo, mat);
+            m.position.set(x, h/2, z);
+            parent.add(m);
+        }
+
+        function addForest(parent, x, z) {
+            for(let i=0; i<5; i++) {
+                const tx = x + (Math.random()-0.5)*40;
+                const tz = z + (Math.random()-0.5)*40;
+                const h = 10 + Math.random()*15;
+                const trunk = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, h), new THREE.MeshLambertMaterial({color: 0x5d4037}));
+                trunk.position.set(tx, h/2, tz);
+                const leaves = new THREE.Mesh(new THREE.ConeGeometry(6, 15, 8), new THREE.MeshLambertMaterial({color: 0x2e7d32}));
+                leaves.position.set(tx, h + 5, tz);
+                parent.add(trunk, leaves);
+            }
+        }
+
+        function addFarm(parent, x, z) {
+            const barn = new THREE.Mesh(new THREE.BoxGeometry(15, 10, 20), new THREE.MeshLambertMaterial({color: 0xc62828}));
+            barn.position.set(x, 5, z);
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(16, 2, 22), new THREE.MeshLambertMaterial({color: 0xeeeeee}));
+            roof.position.set(x, 10, z);
+            parent.add(barn, roof);
+        }
+
+        function addCows(parent, x, z) {
+            for(let i=0; i<8; i++) {
+                const cx = x + (Math.random()-0.5)*30;
+                const cz = z + (Math.random()-0.5)*30;
+                const cow = new THREE.Mesh(new THREE.BoxGeometry(2, 1.5, 3), new THREE.MeshLambertMaterial({color: 0xffffff}));
+                cow.position.set(cx, 0.75, cz);
+                const spot = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshLambertMaterial({color: 0x000000}));
+                spot.position.set(cx, 1.3, cz);
+                parent.add(cow, spot);
+            }
+        }
+
+        function handleKey(code, isDown) {
+            if (isDown && code === 'KeyP' && isPlaying) {
+                togglePause();
+                return;
+            }
+            if (code === 'ArrowUp' || code === 'KeyW') keys.up = isDown;
+            if (code === 'ArrowDown' || code === 'KeyS') keys.down = isDown;
+            if (code === 'ArrowLeft' || code === 'KeyA') keys.left = isDown;
+            if (code === 'ArrowRight' || code === 'KeyD') keys.right = isDown;
+            if (code === 'Space') keys.fire = isDown;
+            if (code === 'KeyX') {
+                if (isDown && !lastXPress) player.isInvincible = !player.isInvincible;
+                lastXPress = isDown;
+            }
+            if (code === 'KeyY') {
+                if (isDown && !lastYPress) fireMissile();
+                lastYPress = isDown;
+            }
+            if (code === 'KeyC') {
+                if (isDown) fireCow();
+            }
+            if (code === 'Enter' || code === 'KeyK') {
+                if (isDown) fireBarrage();
+            }
+        }
+
+        function togglePause() {
+            if (!isPlaying) return;
+            isPaused = !isPaused;
+            document.getElementById('pause-menu').style.display = isPaused ? 'block' : 'none';
+        }
+
+        function fireLaser() {
+            const now = Date.now();
+            if (now - lastFireTime < 200) return;
+            lastFireTime = now;
+            const laserGeo = new THREE.BoxGeometry(0.6, 0.6, 4);
+            const laserMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            [-1.5, 1.5].forEach(offsetX => {
+                const laser = new THREE.Mesh(laserGeo, laserMat);
+                laser.position.copy(jet.position);
+                laser.position.x += offsetX;
+                scene.add(laser);
+                lasers.push(laser);
+            });
+        }
+
+        function spawnMissile(isTiny = false, spread = 0, forcedTarget = null) {
+            const size = isTiny ? 0.3 : 0.6;
+            const missileGeo = new THREE.SphereGeometry(size, 8, 8);
+            const missileMat = new THREE.MeshToonMaterial({ color: 0x111111 });
+            const missile = new THREE.Mesh(missileGeo, missileMat);
+            missile.position.copy(jet.position);
+            if (spread > 0) {
+                missile.position.x += (Math.random() - 0.5) * spread;
+                missile.position.y += (Math.random() - 0.5) * spread;
+            }
+            scene.add(missile);
+            
+            let target = forcedTarget;
+            if (!target) {
+                let minDist = 600;
+                enemies.forEach(e => {
+                    const d = e.position.distanceTo(jet.position);
+                    if (d < minDist && e.position.z < jet.position.z) { minDist = d; target = e; }
+                });
+            }
+            
+            let initialVel = new THREE.Vector3(0, 0, -60);
+            if (isTiny) {
+                initialVel.x += (Math.random() - 0.5) * 40;
+                initialVel.y += (Math.random() - 0.5) * 40;
+            }
+            missiles.push({ mesh: missile, target: target, velocity: initialVel, isTiny: isTiny });
+        }
+
+        function fireMissile() {
+            if (!isPlaying || isPaused || player.missileAmmo <= 0) return;
+            const now = Date.now();
+            if (now - lastMissileTime < 600) return; 
+            lastMissileTime = now;
+            player.missileAmmo--;
+            document.getElementById('missile-count').innerText = player.missileAmmo;
+            spawnMissile(false);
+        }
+
+        function fireCow() {
+            if (!isPlaying || isPaused) return;
+            const now = Date.now();
+            if (now - lastCowTime < 10000) return; // 10s cooldown
+            lastCowTime = now;
+
+            const group = new THREE.Group();
+            
+            // Materials for our voxel cow
+            const matWhite = new THREE.MeshToonMaterial({ color: 0xffffff });
+            const matBlack = new THREE.MeshToonMaterial({ color: 0x222222 });
+            const matPink = new THREE.MeshToonMaterial({ color: 0xff88aa });
+            const matHorn = new THREE.MeshToonMaterial({ color: 0xD4AF37 }); 
+
+            // Main Body 
+            const body = new THREE.Mesh(new THREE.BoxGeometry(3, 2.5, 4.5), matWhite);
+            group.add(body);
+
+            // Spots
+            const spot1 = new THREE.Mesh(new THREE.BoxGeometry(3.1, 1.5, 1.8), matBlack);
+            spot1.position.set(0, 0.5, 0.8);
+            group.add(spot1);
+            const spot2 = new THREE.Mesh(new THREE.BoxGeometry(1.8, 2.6, 1.5), matBlack);
+            spot2.position.set(0.6, 0, -1.2);
+            group.add(spot2);
+            const spot3 = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), matBlack);
+            spot3.position.set(-0.8, -0.5, 0.5);
+            group.add(spot3);
+            const spot4 = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), matBlack);
+            spot4.position.set(0.9, 0.7, -0.5);
+            group.add(spot4);
+
+            // Head
+            const head = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), matWhite);
+            head.position.set(0, 0.8, -2.5);
+            group.add(head);
+
+            const snout = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.8, 0.8), matWhite);
+            snout.position.set(0, -0.5, -0.6);
+            head.add(snout);
+            
+            const n1 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.1), matBlack); 
+            n1.position.set(0.5, 0, -0.41); snout.add(n1);
+            const n2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.1), matBlack); 
+            n2.position.set(-0.5, 0, -0.41); snout.add(n2);
+
+            const e1 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.1), matBlack); 
+            e1.position.set(0.6, 0.3, -1.01); head.add(e1);
+            const e2 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.1), matBlack); 
+            e2.position.set(-0.6, 0.3, -1.01); head.add(e2);
+
+            const hornGeo = new THREE.ConeGeometry(0.2, 1.2, 4);
+            const h1 = new THREE.Mesh(hornGeo, matHorn); 
+            h1.position.set(0.7, 1.4, -0.3); h1.rotation.x = -0.2; head.add(h1);
+            const h2 = new THREE.Mesh(hornGeo, matHorn); 
+            h2.position.set(-0.7, 1.4, -0.3); h2.rotation.x = -0.2; head.add(h2);
+
+            const earOuterGeo = new THREE.BoxGeometry(0.8, 0.5, 0.2);
+            const earInnerGeo = new THREE.BoxGeometry(0.6, 0.3, 0.25);
+            const ear1Outer = new THREE.Mesh(earOuterGeo, matWhite);
+            ear1Outer.position.set(1.2, 0.3, 0); head.add(ear1Outer);
+            const ear1Inner = new THREE.Mesh(earInnerGeo, matPink);
+            ear1Inner.position.set(0, 0, 0); ear1Outer.add(ear1Inner);
+            const ear2Outer = new THREE.Mesh(earOuterGeo, matWhite);
+            ear2Outer.position.set(-1.2, 0.3, 0); head.add(ear2Outer);
+            const ear2Inner = new THREE.Mesh(earInnerGeo, matPink);
+            ear2Inner.position.set(0, 0, 0); ear2Outer.add(ear2Inner);
+
+            // Tail
+            const tailStem = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 1.5), matWhite);
+            tailStem.position.set(0, 1.0, 2.2);
+            tailStem.rotation.x = 0.5;
+            body.add(tailStem);
+            const tailTuft = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), matBlack);
+            tailTuft.position.set(0, 0, 0.8);
+            tailStem.add(tailTuft);
+
+            // Udder
+            const udder = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 1.5), matPink);
+            udder.position.set(0, -1.5, 0.5);
+            const teatGeo = new THREE.BoxGeometry(0.3, 0.4, 0.3);
+            const tPositions = [[0.3, -0.4, 0.3], [-0.3, -0.4, 0.3], [0.3, -0.4, -0.3], [-0.3, -0.4, -0.3]];
+            tPositions.forEach(pos => {
+                const t = new THREE.Mesh(teatGeo, matPink);
+                t.position.set(pos[0], pos[1], pos[2]);
+                udder.add(t);
+            });
+            group.add(udder);
+
+            // Legs
+            const legGeo = new THREE.BoxGeometry(0.8, 1.5, 0.8);
+            const hoofGeo = new THREE.BoxGeometry(0.82, 0.4, 0.82);
+            const positions = [
+                [1.0, -1.7, -1.5], [-1.0, -1.7, -1.5], [1.0, -1.7, 1.5], [-1.0, -1.7, 1.5]
+            ];
+            positions.forEach(pos => {
+                const leg = new THREE.Mesh(legGeo, matWhite);
+                leg.position.set(pos[0], pos[1], pos[2]);
+                const hoof = new THREE.Mesh(hoofGeo, matBlack);
+                hoof.position.set(0, -0.55, 0);
+                leg.add(hoof);
+                group.add(leg);
+            });
+
+            group.scale.set(1.2, 1.2, 1.2);
+            group.position.copy(jet.position);
+            scene.add(group);
+
+            let target = null, minDist = 800;
+            enemies.forEach(e => {
+                const d = e.position.distanceTo(jet.position);
+                if (d < minDist && e.position.z < jet.position.z) { minDist = d; target = e; }
+            });
+
+            cowMissiles.push({ mesh: group, target: target, velocity: new THREE.Vector3(0, 0, -50) });
+        }
+
+        function fireBarrage() {
+            if (!isPlaying || isPaused || player.barrageCount <= 0) return;
+            const now = Date.now();
+            if (now - lastBarrageTime < 3000) return; 
+            lastBarrageTime = now;
+            player.barrageCount--;
+            document.getElementById('barrage-count').innerText = player.barrageCount;
+            
+            const validTargets = enemies.filter(e => e.position.z < jet.position.z);
+            
+            for (let i = 0; i < 25; i++) {
+                let assignedTarget = null;
+                if (validTargets.length > 0) {
+                    assignedTarget = validTargets[i % validTargets.length];
+                }
+                spawnMissile(true, 5, assignedTarget);
+            }
+        }
+
+        function startGame() {
+            [...enemies, ...lasers, ...missiles.map(m=>m.mesh), ...cowMissiles.map(c=>c.mesh), ...particles.map(p=>p.mesh), ...clouds, ...coins, ...bombCoins, ...groundSegments].forEach(m => scene.remove(m));
+            enemies = []; lasers = []; missiles = []; cowMissiles = []; particles = []; clouds = []; coins = []; bombCoins = []; groundSegments = [];
+            createInitialClouds();
+            createInitialGround();
+            health = 5; score = 0;
+            player.missileAmmo = 10;
+            player.barrageCount = 2;
+            document.getElementById('missile-count').innerText = player.missileAmmo;
+            document.getElementById('barrage-count').innerText = player.barrageCount;
+            document.getElementById('score').innerText = '0';
+            jet.position.set(0, 0, 0);
+            player.targetX = 0; player.targetY = 0;
+            player.isInvincible = false;
+            isPaused = false;
+            lastCowTime = 0; // Ready immediately
+            document.getElementById('cow-cooldown-container').style.display = 'block';
+            document.getElementById('menu').style.display = 'none';
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('pause-menu').style.display = 'none';
+            isPlaying = true;
+            renderHearts();
+        }
+
+        function renderHearts() {
+            const container = document.getElementById('hearts-container');
+            container.innerHTML = '';
+            for (let i = 0; i < 5; i++) {
+                const h = document.createElement('span');
+                h.className = 'heart';
+                h.innerHTML = i < health ? '❤️' : '🖤';
+                container.appendChild(h);
+            }
+        }
+
+        function createExplosion(pos, color = 0xffffff, size = 1) {
+            const particleCount = 35 * size;
+            for (let i = 0; i < particleCount; i++) {
+                const mesh = new THREE.Mesh(
+                    new THREE.SphereGeometry((0.8 + Math.random() * 1.5) * size, 6, 6),
+                    new THREE.MeshBasicMaterial({ color: color, transparent: true })
+                );
+                mesh.position.copy(pos);
+                scene.add(mesh);
+                particles.push({
+                    mesh, life: 1.0,
+                    vel: new THREE.Vector3((Math.random()-0.5)*45*size, (Math.random()-0.5)*45*size, (Math.random()-0.5)*45*size)
+                });
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function updateGamepad() {
+            const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+            const gp = gamepads[0]; 
+            if (gp) {
+                const axesThreshold = 0.3;
+                keys.left = gp.axes[0] < -axesThreshold || gp.buttons[14].pressed;
+                keys.right = gp.axes[0] > axesThreshold || gp.buttons[15].pressed;
+                keys.up = gp.axes[1] < -axesThreshold || gp.buttons[12].pressed;
+                keys.down = gp.axes[1] > axesThreshold || gp.buttons[13].pressed;
+                keys.fire = gp.buttons[1].pressed; 
+                if (gp.buttons[0].pressed && !lastGamepadY) fireMissile();
+                lastGamepadY = gp.buttons[0].pressed;
+                if (gp.buttons[2].pressed && !lastGamepadX) player.isInvincible = !player.isInvincible;
+                lastGamepadX = gp.buttons[2].pressed;
+                if (gp.buttons[6].pressed && !lastGamepadL2) fireCow(); 
+                lastGamepadL2 = gp.buttons[6].pressed;
+                if (gp.buttons[7].pressed && !lastGamepadR2) fireBarrage();
+                lastGamepadR2 = gp.buttons[7].pressed;
+                if (gp.buttons[9].pressed && !lastPausePress) togglePause();
+                lastPausePress = gp.buttons[9].pressed;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = Math.min(clock.getDelta(), 0.1);
+            updateGamepad();
+            if (isPlaying && !isPaused) {
+                updatePlayer(delta);
+                updateProjectiles(delta);
+                updateWorld(delta);
+                updateGround(delta);
+                updateHUDGrid(delta);
+                updateHUDBrackets();
+                updateCooldowns();
+
+                // Flap Pig Cape
+                if (jet && jet.capeParts) {
+                    jet.capeParts.forEach((part, i) => {
+                        part.rotation.x = Math.sin(Date.now() * 0.01 + i) * 0.3;
+                    });
+                }
+
+                if (Math.random() < 0.0066) spawnEnemy();
+                if (Math.random() < 0.005) spawnCoin(); 
+                if (Math.random() < 0.002) spawnBombCoin(); 
+                if (Math.random() < 0.05) spawnCloud();
+            }
+            renderer.render(scene, camera);
+        }
+
+        function updateCooldowns() {
+            const now = Date.now();
+            const elapsed = now - lastCowTime;
+            const cooldownTime = 10000; // 10 seconds
+            const progress = Math.min(elapsed / cooldownTime, 1.0);
+            
+            const bar = document.getElementById('cow-cooldown-bar');
+            const text = document.getElementById('cow-cooldown-text');
+            
+            bar.style.width = (progress * 100) + '%';
+            
+            if (progress >= 1.0) {
+                bar.style.background = '#4ecca3'; // Green
+                text.innerText = "COW BOMB READY! [C/L2]";
+                text.style.color = '#ffff00';
+            } else {
+                bar.style.background = '#ff88aa'; // Pink
+                text.innerText = `RECHARGING... ${Math.ceil((cooldownTime - elapsed)/1000)}s [C/L2]`;
+                text.style.color = '#ffffff';
+            }
+        }
+
+        function updateHUDBrackets() {
+            const targetContainer = document.getElementById('enemy-targets');
+            
+            while (targetContainer.children.length < enemies.length) {
+                const bracket = document.createElement('div');
+                bracket.className = 'enemy-bracket';
+                targetContainer.appendChild(bracket);
+            }
+
+            let activeBrackets = 0;
+            
+            enemies.forEach((enemy, index) => {
+                const vector = enemy.position.clone();
+                vector.project(camera);
+                const bracket = targetContainer.children[activeBrackets];
+
+                if (vector.z < 1) {
+                    const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+                    const y = (vector.y * -0.5 + 0.5) * window.innerHeight;
+                    
+                    bracket.style.display = 'block';
+                    bracket.style.left = `${x}px`;
+                    bracket.style.top = `${y}px`;
+                    
+                    const dist = enemy.position.distanceTo(camera.position);
+                    const size = Math.max(10, 5000 / dist);
+                    bracket.style.width = `${size}px`;
+                    bracket.style.height = `${size}px`;
+                    bracket.style.transform = 'translate(-50%, -50%)';
+                    
+                    // Laser kill zone indicator
+                    const isAligned = Math.abs(enemy.position.x - jet.position.x) < 4 && Math.abs(enemy.position.y - jet.position.y) < 4;
+                    bracket.style.borderColor = isAligned ? '#ff0000' : '#00ff00';
+                    
+                    activeBrackets++;
+                }
+            });
+
+            for (let i = activeBrackets; i < targetContainer.children.length; i++) {
+                targetContainer.children[i].style.display = 'none';
+            }
+        }
+
+        function updatePlayer(delta) {
+            const moveSpeed = 40;
+            if (keys.left) player.targetX -= moveSpeed * delta;
+            if (keys.right) player.targetX += moveSpeed * delta;
+            if (keys.up) player.targetY -= moveSpeed * delta;
+            if (keys.down) player.targetY += moveSpeed * delta;
+            player.targetX = THREE.MathUtils.clamp(player.targetX, -player.bounds.x, player.bounds.x);
+            player.targetY = THREE.MathUtils.clamp(player.targetY, -player.bounds.y, player.bounds.y);
+            jet.position.x = THREE.MathUtils.lerp(jet.position.x, player.targetX, 0.1);
+            jet.position.y = THREE.MathUtils.lerp(jet.position.y, player.targetY, 0.1);
+            jet.position.z -= player.speed * delta;
+            const tiltX = (player.targetY - jet.position.y) * 0.1;
+            const tiltZ = (jet.position.x - player.targetX) * 0.2;
+            jet.rotation.set(tiltX, 0, tiltZ);
+
+            if (player.isInvincible) {
+                player.rainbowHue += delta * 2;
+                const color = new THREE.Color().setHSL(player.rainbowHue % 1, 0.7, 0.6);
+                jetParts.forEach(p => p.material.color.lerp(color, 0.2));
+                jet.visible = (Math.floor(Date.now() / 100) % 2 === 0);
+            } else {
+                jet.visible = true;
+                jetParts.forEach(p => p.material.color.lerp(p.userData.originalColor, 0.1));
+            }
+
+            camera.position.set(jet.position.x * 0.5, jet.position.y * 0.5 + 5, jet.position.z + 25);
+            camera.lookAt(jet.position.x, jet.position.y, jet.position.z - 20);
+            if (keys.fire) fireLaser();
+            score += delta * 10;
+            document.getElementById('score').innerText = Math.floor(score);
+        }
+
+        function updateProjectiles(delta) {
+            for (let i = lasers.length - 1; i >= 0; i--) {
+                const l = lasers[i];
+                l.position.z -= 200 * delta;
+                enemies.forEach((enemy, eIdx) => {
+                    if (l.position.distanceTo(enemy.position) < 4) { // Slightly increased hit radius for chickens
+                        createExplosion(enemy.position, 0xffaa00);
+                        scene.remove(enemy); enemies.splice(eIdx, 1);
+                        scene.remove(l); lasers.splice(i, 1);
+                        score += 100;
+                    }
+                });
+                if (l && l.position.z < jet.position.z - 400) { scene.remove(l); lasers.splice(i, 1); }
+            }
+            
+            for (let i = missiles.length - 1; i >= 0; i--) {
+                const m = missiles[i];
+                if (m.target && m.target.parent) {
+                    const dir = new THREE.Vector3().subVectors(m.target.position, m.mesh.position).normalize();
+                    const turnRate = m.isTiny ? 0.08 : 0.05;
+                    const spd = m.isTiny ? 120 : 100;
+                    m.velocity.lerp(dir.multiplyScalar(spd), turnRate);
+                } else {
+                    let minDist = 500;
+                    enemies.forEach(e => {
+                        const d = e.position.distanceTo(m.mesh.position);
+                        if (d < minDist && e.position.z < m.mesh.position.z) { minDist = d; m.target = e; }
+                    });
+                }
+                m.mesh.position.add(m.velocity.clone().multiplyScalar(delta));
+                if (Math.random() > (m.isTiny ? 0.7 : 0.4)) {
+                    const flame = new THREE.Mesh(new THREE.SphereGeometry(m.isTiny ? 0.15 : 0.3, 4, 4), new THREE.MeshBasicMaterial({ color: 0xff4500, transparent: true }));
+                    flame.position.copy(m.mesh.position);
+                    scene.add(flame);
+                    particles.push({ mesh: flame, life: 0.4, vel: new THREE.Vector3((Math.random()-0.5)*5, (Math.random()-0.5)*5, (Math.random()-0.5)*5) });
+                }
+                enemies.forEach((enemy, eIdx) => {
+                    const hitDist = m.isTiny ? 2.5 : 5; // Adjusted hit radius
+                    if (m.mesh.position.distanceTo(enemy.position) < hitDist) {
+                        createExplosion(enemy.position, 0xff5500, m.isTiny ? 1 : 2); 
+                        scene.remove(enemy); enemies.splice(eIdx, 1);
+                        scene.remove(m.mesh); missiles.splice(i, 1);
+                        score += m.isTiny ? 50 : 250;
+                    }
+                });
+                if (m.mesh && m.mesh.position.z < jet.position.z - 800) { scene.remove(m.mesh); missiles.splice(i, 1); }
+            }
+
+            for (let i = cowMissiles.length - 1; i >= 0; i--) {
+                const c = cowMissiles[i];
+                if (c.target && c.target.parent) {
+                    const dir = new THREE.Vector3().subVectors(c.target.position, c.mesh.position).normalize();
+                    c.velocity.lerp(dir.multiplyScalar(160), 0.08); 
+                } else {
+                    let minDist = 800;
+                    enemies.forEach(e => {
+                        const d = e.position.distanceTo(c.mesh.position);
+                        if (d < minDist && e.position.z < c.mesh.position.z) { minDist = d; c.target = e; }
+                    });
+                }
+                c.mesh.position.add(c.velocity.clone().multiplyScalar(delta));
+                
+                c.mesh.rotation.x += delta * 10;
+                c.mesh.rotation.y += delta * 15;
+                c.mesh.rotation.z += delta * 5;
+
+                let hit = false;
+                enemies.forEach((enemy, eIdx) => {
+                    if (c.mesh.position.distanceTo(enemy.position) < 8) {
+                        createExplosion(enemy.position, 0xffa500, 6); 
+                        scene.remove(enemy); enemies.splice(eIdx, 1);
+                        hit = true;
+                        score += 500;
+                    }
+                });
+
+                if (hit) {
+                    scene.remove(c.mesh); cowMissiles.splice(i, 1);
+                } else if (c.mesh && c.mesh.position.z < jet.position.z - 1200) { 
+                    scene.remove(c.mesh); cowMissiles.splice(i, 1); 
+                }
+            }
+        }
+
+        function updateGround(delta) {
+            for(let i = groundSegments.length - 1; i >= 0; i--) {
+                const seg = groundSegments[i];
+                if (seg.position.z > jet.position.z + SEGMENT_LENGTH) {
+                    const furthestZ = Math.min(...groundSegments.map(s => s.position.z));
+                    seg.position.z = furthestZ - SEGMENT_LENGTH;
+                }
+            }
+        }
+
+        function updateWorld(delta) {
+            clouds.forEach((cloud, i) => {
+                if (cloud.position.z > jet.position.z + 200) {
+                    scene.remove(cloud); clouds.splice(i, 1);
+                }
+            });
+            for (let i = coins.length - 1; i >= 0; i--) {
+                const coin = coins[i];
+                coin.rotation.y += delta * 3;
+                if (coin.position.distanceTo(jet.position) < 5) {
+                    if (player.missileAmmo < player.maxMissiles) {
+                        player.missileAmmo++;
+                        document.getElementById('missile-count').innerText = player.missileAmmo;
+                    }
+                    score += 50; scene.remove(coin); coins.splice(i, 1); continue;
+                }
+                if (coin.position.z > jet.position.z + 50) { scene.remove(coin); coins.splice(i, 1); }
+            }
+            for (let i = bombCoins.length - 1; i >= 0; i--) {
+                const bCoin = bombCoins[i];
+                bCoin.rotation.y += delta * 5;
+                bCoin.children[0].material.color.setHex(Date.now() % 400 < 200 ? 0xffff00 : 0xffffff);
+                
+                if (bCoin.position.distanceTo(jet.position) < 6) {
+                    player.barrageCount += 2;
+                    document.getElementById('barrage-count').innerText = player.barrageCount;
+                    score += 150; 
+                    scene.remove(bCoin); 
+                    bombCoins.splice(i, 1); 
+                    continue;
+                }
+                if (bCoin.position.z > jet.position.z + 50) { scene.remove(bCoin); bombCoins.splice(i, 1); }
+            }
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                
+                // Chicken Flapping Animation
+                if(enemy.userData.wingLeft && enemy.userData.wingRight) {
+                    enemy.userData.flapTimer += delta * enemy.userData.flapSpeed;
+                    const flapAngle = Math.sin(enemy.userData.flapTimer) * 0.8;
+                    enemy.userData.wingLeft.rotation.z = flapAngle;
+                    enemy.userData.wingRight.rotation.z = -flapAngle;
+                }
+
+                if (enemy.userData.isTracker) {
+                    const dirToPlayer = new THREE.Vector3().subVectors(jet.position, enemy.position).normalize();
+                    enemy.position.add(dirToPlayer.multiplyScalar(enemy.userData.trackSpeed * delta));
+                } else {
+                    enemy.position.z += 12 * delta;
+                }
+                if (enemy.position.distanceTo(jet.position) < 4) {
+                    if (!player.isInvincible) {
+                        health--; renderHearts();
+                        if (health <= 0) endGame("Hull Destroyed!");
+                    }
+                    createExplosion(enemy.position, 0xff0000);
+                    scene.remove(enemy); enemies.splice(i, 1); continue;
+                }
+                if (enemy.position.z > jet.position.z + 50) { scene.remove(enemy); enemies.splice(i, 1); }
+            }
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.mesh.position.add(p.vel.clone().multiplyScalar(delta));
+                p.life -= delta * 1.8;
+                p.mesh.scale.setScalar(Math.max(0.01, p.life));
+                if (p.life <= 0) { scene.remove(p.mesh); particles.splice(i, 1); }
+            }
+        }
+
+        function endGame(reason) {
+            isPlaying = false;
+            document.getElementById('game-over').style.display = 'block';
+            document.getElementById('fail-reason').innerText = reason;
+            document.getElementById('final-score').innerText = Math.floor(score);
+            document.getElementById('enemy-targets').innerHTML = '';
+            document.getElementById('cow-cooldown-container').style.display = 'none';
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
